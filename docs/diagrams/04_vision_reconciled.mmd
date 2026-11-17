@@ -1,0 +1,67 @@
+graph TB
+    subgraph LOAM["loamlite — reused, not reimplemented"]
+        M1["M1 · Knowledge gathering<br/>fetch-literature · rag-build/query skills"]
+        M2["M2 · Hypothesis generation<br/>Jnana tournament (Elo)"]
+        HPC["HPC execution<br/>Globus→PBS→Academy · run_batch"]
+        SK["Scientific skills<br/>chai · rfdiffusion3 · proteinmpnn · md-* · bioemu"]
+    end
+
+    subgraph SOP["asop · production SOP-DAG (immutable · versioned · type-checked)"]
+        M3["M3 · Binder design<br/>rfdiffusion3→proteinmpnn ⇒ DesignBatch"]
+        M4["M4 · Quality control / evaluation<br/>fork: chai-ipSAE | pyrosetta-ΔG ⇒ QCReport"]
+        M5["M5 · Target reconnaissance<br/>chai-holo · bioemu · MD/MSM ⇒ ReconEnsemble"]
+        M6["M6 · Optimization<br/>DPO / KTO / GRPO ⇒ ModelDelta"]
+        M7["M7 · Mechanistic understanding<br/>DeepDriveWE k_off · free energy ⇒ MechInsight"]
+    end
+
+    subgraph GOV["asop · governance — separation of powers"]
+        PE["Process-engineer<br/>PROPOSES a branch (authors real code with skills)"]
+        GATE{"gate: smoke + stretch<br/>max(i-2,0)→end · held-out probes<br/>non-regressing objective"}
+        REG["DAG registry<br/>append-only · validates on write"]
+        HUMAN["human promotion<br/>opens the fork to the operator"]
+        OPR["Operator<br/>ε-greedy bandit / LLM<br/>NAMES a branch at an allowed fork<br/>(Bandit vs Random = did agents help?)"]
+    end
+
+    BUS(["Module bus<br/>forward: knowledge/ideas → engineers<br/>backward: requests/findings → scientists"])
+
+    %% deterministic data edges (solid, typed)
+    M1 -->|RAG index| M2
+    M2 -->|TargetSpec| M3
+    M3 -->|DesignBatch| M4
+    M4 -->|QCReport| M6
+    M5 -->|recommended TargetSpecs| M3
+    M5 --> M4
+    M4 -->|top-N shortlist| M7
+
+    %% feedback edges (dotted)
+    M6 -.ModelDelta weights.-> M3
+    M4 -.objective.-> OPR
+    M7 -.rescore hypotheses.-> M2
+
+    %% loamlite backing (dotted, undirected intent)
+    SK -.authors.-> PE
+    M3 -.run_batch.-> HPC
+    M4 -.run_batch.-> HPC
+    M5 -.run_batch.-> HPC
+
+    %% governance loop
+    PE --> GATE
+    GATE -->|fail| PE
+    GATE -->|pass| REG
+    REG --> HUMAN
+    HUMAN --> OPR
+    REG -->|build_sop| SOP
+    OPR -.names branch only.-> M4
+
+    %% agentic communication network (dotted, bidirectional)
+    M1 <-.-> BUS
+    M2 <-.-> BUS
+    PE <-.-> BUS
+    M7 -.insight.-> BUS
+
+    classDef loam fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b;
+    classDef sop fill:#dcfce7,stroke:#16a34a,color:#064e3b;
+    classDef gov fill:#fef3c7,stroke:#d97706,color:#713f12;
+    class M1,M2,HPC,SK loam
+    class M3,M4,M5,M6,M7 sop
+    class PE,GATE,REG,HUMAN,OPR gov
