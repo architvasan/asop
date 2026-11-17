@@ -1,5 +1,5 @@
 # asop
-##Agentic Standard Operating Procedure
+## Agentic Standard Operating Procedure
 
 ### Binder Design System
 
