@@ -117,13 +117,30 @@ Demonstrated offline end-to-end by `examples/demo_registry.py` and
 
 ## The promotion gate (makes README's "strict constraint test" real)
 
-A proposed branch is accepted only if:
+The gate is deliberately **minimal**. Its job is to certify a change is **safe to
+try in production** — it does not break the DAG, does not regress the current
+objective, and is affordable — **not** to prove the change is an improvement.
+Proving improvement is usually impossible before production and is the PE's and the
+analysis scientist's job, not the gate's; over-building the gate would both
+duplicate the operator's production A/B and encroach on the roles it exists to
+protect. A proposed branch is accepted only if:
 1. **smoke** — runs on one probe and produces the fork's declared output type;
 2. **stretch** — the README's own rule `max(i-2, 0) → end`: splice the branch in,
    run the downstream stretch on a **held-out probe set** to completion, and
    require the terminal **objective** to be **non-regressing** vs. the current
    production branch on the same probes (± `epsilon`);
 3. **promotion** — emit a new SOP version with the fork opened to the operator.
+4. **speed** — a metric proposed as a gate must also pass the cost/throughput test
+   (see "A gate metric must be cheap and sound"); a sharp-but-slow metric is
+   relegated to a validation anchor, not a gate.
+
+**Where "better" is actually decided.** The gate only opens a *safe* branch to the
+operator. The operator's bandit then accumulates that branch's **real objective**
+over production rounds and converges on what genuinely wins, and the **M7 analysis
+scientist** interprets the raw outcomes to judge whether an improvement is real and
+why. Improvement is therefore an empirical, post-hoc, production verdict — the
+README's "either the agents improve the DAGs, or we at least have data." The gate
+is the floor; production + M7 is the proof.
 
 ## Objective
 
@@ -132,6 +149,102 @@ human-readable `objective_definition`. Make this the real campaign goal
 (e.g. *developable, selective, high-confidence binders per node-hour*) so the
 README's honest "did the agents actually help?" question is measurable: compare
 `BanditOperator` vs. `RandomOperator` on the same forks.
+
+The whole PE/operator loop is only as trustworthy as that objective, so the
+objective must be both **sound** (hard to game, generalizable across modules) and
+**cheap** (runnable in the hot loop). The next two sections make each concrete.
+
+## Objective soundness — what makes a gate metric trustworthy
+
+**Scope — don't over-build this.** For an ordinary branch proposal (a new design or
+QC method) the minimal gate above is enough: safe to try, then let production
+decide. The machinery below applies to one narrower, higher-stakes case — when a PE
+proposes a metric to serve **as the objective/gate that other PEs are measured
+against** (a "gold standard"). A measuring stick must itself be trustworthy, so that
+case — and only that case — earns the extra checks.
+
+### The trap
+Ranking two *evaluator* branches by their own survivor fraction selects the
+**looser gate**, not the better metric — the agent "improves" the number while
+producing nothing better (Goodhart). Any threshold-based self-report has this flaw.
+
+### Why not domain-specific negative controls
+They do not generalize. Sequence **scrambles** are only valid negatives when
+residue order drives structure — they fail for short peptides, where a scramble ≈
+the real design. **Hotspot knockout** assumes an identifiable binding interface,
+which is meaningless for e.g. enzyme design. So a metric is judged purely from how
+its values are **distributed across a population of designs** — no controls, no
+labels, no task-specific assumptions:
+
+1. **Reliability floor — discrimination index (ICC).** Run the metric with its
+   natural stochasticity (folding seeds, stochastic packing, MD replicas) to get
+   several values *per design*, then
+   `ICC = (MS_between − MS_within) / (MS_between + (k−1)·MS_within)` ∈ [0,1]: the
+   fraction of the metric's variance that is real design-to-design signal rather
+   than measurement noise. Rejects a **degenerate** metric (all designs at the
+   ceiling → ICC≈0) and a **noisy** one (seed scatter swamps signal → ICC≈0).
+   Threshold-free; needs only replicates, which every stochastic scorer produces.
+   (This is the statistical core of the HTS **Z′-factor**, minus Z′'s requirement
+   for defined positive/negative control populations — which is what made Z′
+   non-generalizable.)
+2. **Validity — orthogonal inter-metric agreement.** Spearman correlation across
+   the population between two *independent* estimators of the same quantity
+   (ML folding confidence vs physics energy; two folders; an ML activity predictor
+   vs a physics barrier for enzymes). Every module has ≥2 ways to score. High ICC
+   but low agreement = the metric reliably measures the WRONG axis — caught here.
+3. **Promotion — one-sided distributional non-regression.** The stretch gate
+   compares the new metric's *distribution* to the baseline's on held-out designs
+   and requires it is not stochastically worse (one-sided; on the relevant
+   quantile — the top-k tail for design yield, since design cares about the tail).
+
+### Reliability ≠ validity
+Distribution-only criteria measure resolving power, not correctness: a metric can
+have ICC≈0.9 and resolve designs along an irrelevant axis. ICC + orthogonal
+agreement is the generalizable floor; the ultimate grounding is correlation with a
+small, expensive **gold set** (MD stability / wet-lab), run rarely as an anchor
+(see cost below).
+
+### Grounding chains up the pipeline
+A metric is never trusted in the abstract. **M4 earns trust by passing the above,
+and M3 is then judged by "yield of designs that survive validated-M4"** — not by a
+raw folding proxy such as ipTM, which is itself gameable. Trust flows upward so
+each layer's objective is grounded in a downstream layer that already passed its
+own validity test.
+
+### Measurability
+This keeps the README's honest question answerable: once the objective is sound,
+compare `BanditOperator` vs. `RandomOperator` on the same forks to see whether
+opening a fork to the operator actually beats the random baseline.
+
+## A gate metric must be cheap and sound (the speed test)
+
+A gate/objective runs in the **hot loop** — on every design, every round, inside
+PE evaluation and operator selection. A metric that is sharp but expensive
+(e.g. 3 h/design) is non-functional *for gating*, however good it is. So:
+
+- **Role decides the budget.** A metric used **as a gate** must be cheap; a sharp,
+  expensive metric is not banned — it is relegated to a **validation anchor**, run
+  rarely on a small held-out set to validate (correlate with) the cheap gate.
+  Cost per design should scale inversely with how many designs the metric sees:
+  tiny at M3/M4 (sees everything), large at M7 (sees only a top-N shortlist). This
+  is the tiered-funnel principle — cheap filters first, expensive metrics only on
+  the survivors.
+- **Speed test at promotion.** When a PE proposes a metric as the gold standard
+  other PEs gate against, it must pass a throughput test *before* promotion:
+  measured **node-hours (GPU-tile-seconds) per design**, taken for free by timing
+  the **smoke run** at steady-state `run_batch` throughput (not cold-start
+  latency), projected as `cost/design × designs/round` and checked against the
+  step's allocation in `modules.ResourceManager`. Over budget ⇒ fails the gate
+  role (may still register as an anchor).
+- **Cost enters the ranking, not just a floor.** The campaign objective is quality
+  **per node-hour**: among adequately-sharp metrics, prefer the cheaper — a metric
+  90% as sharp at 1% of the cost is the better gate (the same cost/latency logic by
+  which the operator's model size is chosen).
+- **Replicate cost counts.** The ICC criterion needs replicates, which multiply
+  cost: a metric needing 20 seeds to reach ICC>0.5 is ~20× more expensive than one
+  reliable in 1–2 seeds. The right figure of merit is **reliability per node-hour**
+  — the cost projection must include the replicates needed to reach an adequate ICC,
+  which unifies the sharpness and speed constraints into one axis.
 
 ## Module bus (`bus.py`)
 
