@@ -1,0 +1,28 @@
+graph TD
+    PE["Process-engineer<br/>authors real batch script (uses skills)"] -->|smoke + stretch gate| GATE{"non-regressing<br/>on held-out probes?"}
+    GATE -->|no| REJECT["rejected — not committed"]
+    GATE -->|yes, human-gated| REGc["Registry.register(BranchRecord)<br/>append-only commit"]
+
+    REGc --> BUILD["Registry.build_sop(version, step_order)"]
+    BUILD --> SOPi["immutable SOP<br/>(Fork per step)"]
+
+    SOPi --> EX["Executor.run(sop, initial, ctx)"]
+    EX --> STEP{"step type?"}
+    STEP -->|Node| RUN1["node.run → fn"]
+    STEP -->|Fork & allow_operator| OPsel["operator.select(ctx, fork)<br/>ε-greedy / LLM / random"]
+    STEP -->|Fork closed| DEF["default_branch (deterministic)"]
+    OPsel -->|branch NAME only| RUN2["branch.run → fn"]
+    DEF --> RUN2
+
+    RUN1 --> NF["batch_node fn"]
+    RUN2 --> NF
+    NF --> GET["get_store / get_runner from ctx.extra"]
+    GET --> ROWS["adapter build_rows: query Store → JSONL rows<br/>(+ holo cofactor ligands)"]
+    ROWS --> SUB["runner.submit(step, script, rows)"]
+
+    SUB --> PERROW["PER-ROW: python script.py input.json → result.json<br/>(one row per GPU tile on Aurora)"]
+    PERROW --> HARVEST["harvest result.json per row"]
+    HARVEST --> PARSE["adapter parse: write Metric rows → Store,<br/>survivors by gate, objective + objective_definition"]
+    PARSE --> QC["QCReport artifact"]
+    QC --> REC["operator.record(fork, branch, objective)<br/>→ updates BranchStats"]
+    REC -.->|feeds next round's ε-greedy| OPsel

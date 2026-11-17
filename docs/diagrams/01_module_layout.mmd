@@ -1,0 +1,57 @@
+graph TD
+    subgraph SCHEMAS["schemas.py — typed artifact contracts"]
+        ART["Artifact (extra='forbid', origin)<br/>TargetSpec · Design · DesignBatch<br/>Metric · QCReport · ReconEnsemble<br/>PreferenceSet · ModelDelta · MechInsight<br/>ForkChoice · BranchProposal · PromotionResult"]
+    end
+
+    subgraph CORE["dag.py — the SOP-DAG (plain-Python orchestrator)"]
+        NODE["Node (frozen): consumes→produces, fn"]
+        FORK["Fork: interchangeable branches<br/>allow_operator gate"]
+        SOP["SOP (frozen, versioned)<br/>type-chain checked · .sub() · .with_branch()"]
+        EXEC["Executor.run(sop, initial, ctx)<br/>→ (artifact, trace)"]
+        SEL["Selector = (ctx, fork) → (branch, by, why)"]
+    end
+
+    subgraph CONTROL["control layer"]
+        OP["operator.py<br/>BanditOperator · LLMOperator · RandomOperator"]
+        ENG["engineer.py<br/>ProcessEngineer: smoke + stretch gate"]
+        REG["registry.py<br/>Registry · BranchRecord · Adapter<br/>append-only JSONL · build_sop()"]
+    end
+
+    subgraph INFRA["infrastructure"]
+        MOD["modules.py<br/>M1–M7 REGISTRY · ResourceManager"]
+        BUS["bus.py<br/>Bus · ALLOWED edges (incl. M7→M2)"]
+        STORE["store.py<br/>SQLite Store (designs/metrics/batches)"]
+        BATCH["batch.py<br/>BatchRunner · LocalBatchRunner · McpBatchRunner"]
+        NODES["nodes.py<br/>batch_node() factory"]
+    end
+
+    subgraph SCI["M4-QC scientific code (item 1)"]
+        COMMON["adapters/_common.py<br/>build_rows + metric-agnostic parse"]
+        AQC["adapters/m4_qc.py<br/>ADAPTER 'm4-qc' · chai-ipsae baseline"]
+        AEN["adapters/m4_qc_energy.py<br/>ADAPTER 'm4-qc-energy' · pyrosetta-dG"]
+        WCHAI["scripts/m4_qc_chai.py<br/>Chai co-fold + vendored ipSAE"]
+        WROS["scripts/m4_qc_pyrosetta.py<br/>Chai + CIF→PDB + interface ΔG"]
+    end
+
+    CORE --> SCHEMAS
+    OP -->|provides select| SEL
+    SEL -.-> EXEC
+    ENG -->|PromotionResult| REG
+    REG -->|build_sop| SOP
+    REG --> NODE
+    EXEC --> SOP
+
+    NODES --> BATCH
+    NODES --> STORE
+    AQC --> COMMON
+    AEN --> COMMON
+    COMMON --> NODES
+    AQC -->|make_node| NODE
+    AEN -->|make_node| NODE
+    AQC -.frozen script.-> WCHAI
+    AEN -.frozen script.-> WROS
+    REG -->|Adapter| AQC
+    REG -->|Adapter| AEN
+
+    EXEC --> MOD
+    EXEC --> BUS

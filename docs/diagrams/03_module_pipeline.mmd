@@ -1,0 +1,16 @@
+graph LR
+    M1["M1 knowledge<br/>literature / RAG"] -->|goal, hotspots| M2["M2 hypothesis<br/>Jnana tournament"]
+    M2 -->|TargetSpec| M3["M3 design<br/>rfdiffusion → proteinmpnn"]
+    M3 -->|DesignBatch| M4["M4 QC (fork)<br/>chai-ipsae | pyrosetta-dG"]
+    M4 -->|QCReport| M6["M6 optimization<br/>DPO / ModelDelta"]
+    M6 -.ModelDelta.-> M3
+    M5["M5 recon<br/>ensemble / MD"] -->|ReconEnsemble →<br/>recommended TargetSpecs| M3
+    M4 -->|top-N| M7["M7 mechanism<br/>kinetics / free energy"]
+    M7 -.MechInsight (rescore).-> M2
+
+    classDef done fill:#bbf7d0,stroke:#16a34a,color:#064e3b;
+    classDef wip fill:#fde68a,stroke:#d97706,color:#713f12;
+    classDef todo fill:#e5e7eb,stroke:#9ca3af,color:#374151;
+    class M4 done
+    class M3 wip
+    class M1,M2,M5,M6,M7 todo
